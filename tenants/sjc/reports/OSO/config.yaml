@@ -21,7 +21,7 @@ images:
 
     # A borda direita da imagem deve terminar
     # exatamente no final da coluna U.
-    end_column: "U"
+    end_column: "T"
 
     # Linha onde a imagem será posicionada.
     row: 1
