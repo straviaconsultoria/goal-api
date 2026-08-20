@@ -1,0 +1,84 @@
+name: "OSO - Tabela Resumo Operação da Linha"
+
+template: "v1.xlsx"
+
+# O template possui nome de aba dinâmico: {{LINHA}}.
+# O generator utiliza a primeira aba e depois substitui o token.
+
+output_filename: "OSO.xlsx"
+
+
+sections:
+
+  registros_api:
+
+    # Marcador técnico localizado em X10.
+    marker: "{{REGISTROS_API}}"
+
+    # Primeira linha dos registros.
+    start_row: 10
+
+    # Linhas-modelo utilizadas alternadamente para preservar o zebrado.
+    template_rows:
+      - 10
+      - 11
+
+    clear_template_rows_when_empty: true
+
+
+    # ========================================================
+    # MAPEAMENTO DOS CAMPOS RECEBIDOS DA API/N8N
+    # PARA AS COLUNAS DO EXCEL
+    # ========================================================
+
+    columns:
+
+      # ------------------------------------------------------
+      # QUADRANTE 1
+      # Excel A:G
+      # ------------------------------------------------------
+
+      1_BLOCO: 1
+      1_ITINERARIO: 2
+      1_HORARIO_INICIO: 3
+      1_TEMPO_PERCURSO: 4
+      1_PARADA_OPERACIONAL: 5
+      1_HORARIO_FIM: 6
+      1_HEADWAY: 7
+
+
+      # ------------------------------------------------------
+      # QUADRANTE 2
+      # Excel H:N
+      # ------------------------------------------------------
+
+      2_BLOCO: 8
+      2_ITINERARIO: 9
+      2_HORARIO_INICIO: 10
+      2_TEMPO_PERCURSO: 11
+      2_PARADA_OPERACIONAL: 12
+      2_HORARIO_FIM: 13
+      2_HEADWAY: 14
+
+
+      # ------------------------------------------------------
+      # QUADRANTE 3
+      # DESLOCAMENTO PARA RECARGA
+      # Excel O:Q
+      # ------------------------------------------------------
+
+      3_DESLOCAMENTO_INICIO: 15
+      3_DESLOCAMENTO_FIM: 16
+      3_SOC_ANTERIOR_RECARGA: 17
+
+
+      # ------------------------------------------------------
+      # QUADRANTE 4
+      # RECARGA PROGRAMADA
+      # Excel R:U
+      # ------------------------------------------------------
+
+      4_HORARIO_INICIO: 18
+      4_HORARIO_FIM: 19
+      4_SOC_APOS_RECARGA: 20
+      4_TEMPO_TOTAL_RECARGA: 21

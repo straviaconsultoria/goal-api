@@ -5,13 +5,23 @@ from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.cell_range import CellRange
 
+
+# ============================================================
+# TOKENS
+# ============================================================
 
 def _replace_tokens(value: Any, variables: dict) -> Any:
     """
-    Substitui tokens no formato {{variavel}} pelos valores recebidos
+    Substitui tokens no formato {{CAMPO}} pelos valores recebidos
     em payload["variables"].
+
+    Exemplo:
+        {{LINHA}} -> 082
     """
+
     if not isinstance(value, str):
         return value
 
@@ -20,10 +30,18 @@ def _replace_tokens(value: Any, variables: dict) -> Any:
     for key, val in variables.items():
         token = "{{" + str(key) + "}}"
         replacement = "" if val is None else str(val)
-        out = out.replace(token, replacement)
+
+        out = out.replace(
+            token,
+            replacement,
+        )
 
     return out
 
+
+# ============================================================
+# CÓPIA DE ESTILO
+# ============================================================
 
 def _copy_row_style(
     ws,
@@ -32,16 +50,31 @@ def _copy_row_style(
     max_col: int,
 ):
     """
-    Copia a formatação de uma linha-modelo para outra linha.
+    Copia toda a formatação visual de uma linha-modelo.
 
-    Células MergedCell são ignoradas porque são somente leitura.
+    Utilizado para preservar:
+    - zebrado
+    - bordas
+    - preenchimento
+    - fonte
+    - alinhamento
+    - formatos numéricos
+    - proteção
+    - altura da linha
     """
+
     for col in range(1, max_col + 1):
 
-        src = ws.cell(source_row, col)
-        dst = ws.cell(target_row, col)
+        src = ws.cell(
+            source_row,
+            col,
+        )
 
-        # Proteção para células mescladas.
+        dst = ws.cell(
+            target_row,
+            col,
+        )
+
         if isinstance(src, MergedCell):
             continue
 
@@ -51,54 +84,69 @@ def _copy_row_style(
         if src.has_style:
             dst._style = copy(src._style)
 
-        if src.number_format:
-            dst.number_format = src.number_format
-
         dst.font = copy(src.font)
         dst.fill = copy(src.fill)
         dst.border = copy(src.border)
         dst.alignment = copy(src.alignment)
         dst.protection = copy(src.protection)
 
-    # Copia altura da linha.
+        if src.number_format:
+            dst.number_format = src.number_format
+
     source_height = ws.row_dimensions[source_row].height
 
     if source_height is not None:
         ws.row_dimensions[target_row].height = source_height
 
 
-def _find_marker(ws, marker: str):
+# ============================================================
+# MARCADORES
+# ============================================================
+
+def _find_marker(
+    ws,
+    marker: str,
+):
     """
-    Procura um marcador dentro da planilha.
+    Procura um marcador técnico dentro da planilha.
 
     Exemplo:
-    {{PARTIDAS}}
-    {{OCIOSAS}}
-    {{RECARGAS}}
+        {{REGISTROS_API}}
     """
 
     for row in ws.iter_rows():
 
         for cell in row:
 
-            # Células internas de um merge não possuem valor editável.
             if isinstance(cell, MergedCell):
                 continue
 
             if cell.value == marker:
-                return cell.row, cell.column
+
+                return (
+                    cell.row,
+                    cell.column,
+                )
 
     return None
 
 
-def _replace_variables(ws, variables: dict):
+# ============================================================
+# VARIÁVEIS DO TEMPLATE
+# ============================================================
+
+def _replace_variables(
+    ws,
+    variables: dict,
+):
     """
-    Substitui variáveis simples existentes no template.
+    Substitui variáveis simples dentro das células.
 
     Exemplo:
-    {{linha}}
-    {{data}}
-    {{titulo}}
+        {{LINHA}}
+        {{ITINERARIO}}
+        {{TIPO_DIA}}
+        {{ROUTE_1}}
     """
 
     if not variables:
@@ -108,17 +156,133 @@ def _replace_variables(ws, variables: dict):
 
         for cell in row:
 
-            # IMPORTANTE:
-            # somente a célula superior esquerda de um merge é editável.
             if isinstance(cell, MergedCell):
                 continue
 
             if isinstance(cell.value, str):
+
                 cell.value = _replace_tokens(
                     cell.value,
                     variables,
                 )
 
+
+# ============================================================
+# NOME DA ABA
+# ============================================================
+
+def _replace_sheet_title(
+    ws,
+    variables: dict,
+):
+    """
+    Permite utilizar tokens também no nome da aba.
+
+    Exemplo:
+        {{LINHA}} -> 082
+    """
+
+    new_title = _replace_tokens(
+        ws.title,
+        variables,
+    )
+
+    if new_title == ws.title:
+        return
+
+    # Caracteres não permitidos pelo Excel em nomes de abas.
+    invalid_chars = [
+        "\\",
+        "/",
+        "*",
+        "?",
+        ":",
+        "[",
+        "]",
+    ]
+
+    for char in invalid_chars:
+        new_title = new_title.replace(
+            char,
+            "-",
+        )
+
+    # Excel limita nomes de abas a 31 caracteres.
+    new_title = new_title[:31].strip()
+
+    if not new_title:
+        new_title = "Relatorio"
+
+    ws.title = new_title
+
+
+# ============================================================
+# ÁREA DE IMPRESSÃO
+# ============================================================
+
+def _update_print_area(
+    ws,
+    inserted_rows: int,
+    insertion_start_row: int,
+):
+    """
+    Expande a área de impressão quando novas linhas são inseridas.
+
+    Exemplo original:
+        A1:U15
+
+    Se forem adicionadas 56 linhas:
+        A1:U71
+    """
+
+    if inserted_rows <= 0:
+        return
+
+    print_area = ws.print_area
+
+    if not print_area:
+        return
+
+    ranges = []
+
+    try:
+        ranges = list(print_area.ranges)
+    except Exception:
+        return
+
+    new_ranges = []
+
+    for cell_range in ranges:
+
+        min_col = cell_range.min_col
+        min_row = cell_range.min_row
+        max_col = cell_range.max_col
+        max_row = cell_range.max_row
+
+        if max_row >= insertion_start_row:
+            max_row += inserted_rows
+
+        start_cell = (
+            f"{get_column_letter(min_col)}"
+            f"{min_row}"
+        )
+
+        end_cell = (
+            f"{get_column_letter(max_col)}"
+            f"{max_row}"
+        )
+
+        new_ranges.append(
+            f"{start_cell}:{end_cell}"
+        )
+
+    if new_ranges:
+        ws.print_area = ",".join(new_ranges)
+
+
+# ============================================================
+# GERAÇÃO DO RELATÓRIO
+# ============================================================
 
 def generate(
     template_path: Path,
@@ -126,98 +290,145 @@ def generate(
     payload: dict,
 ) -> BytesIO:
     """
-    Gera um relatório Excel utilizando:
+    Motor genérico de geração de relatórios Excel.
+
+    Suporta:
 
     - template XLSX
-    - config.yaml
-    - payload JSON
-
-    Retorna o arquivo gerado em memória (BytesIO).
+    - variáveis {{TOKEN}}
+    - seções dinâmicas
+    - múltiplas linhas-modelo
+    - zebrado
+    - quantidade variável de registros
+    - rodapé deslocável
+    - células mescladas
+    - nome de aba dinâmico
+    - atualização da área de impressão
     """
 
-    # ---------------------------------------------------------
-    # 1. Valida template
-    # ---------------------------------------------------------
+    # ========================================================
+    # 1. VALIDA TEMPLATE
+    # ========================================================
 
-    template_path = Path(template_path)
-
-    if not template_path.exists():
-        raise FileNotFoundError(
-            f"Template não encontrado: {template_path}"
-        )
-
-    # ---------------------------------------------------------
-    # 2. Abre workbook
-    # ---------------------------------------------------------
-
-    wb = load_workbook(template_path)
-
-    # ---------------------------------------------------------
-    # 3. Seleciona planilha
-    # ---------------------------------------------------------
-
-    sheet_name = config.get("sheet") or wb.sheetnames[0]
-
-    if sheet_name not in wb.sheetnames:
-        raise ValueError(
-            f"A planilha '{sheet_name}' não existe no template. "
-            f"Planilhas disponíveis: {wb.sheetnames}"
-        )
-
-    ws = wb[sheet_name]
-
-    # ---------------------------------------------------------
-    # 4. Variáveis simples
-    # ---------------------------------------------------------
-
-    variables = payload.get("variables", {}) or {}
-
-    _replace_variables(
-        ws,
-        variables,
+    template_path = Path(
+        template_path
     )
 
-    # ---------------------------------------------------------
-    # 5. Seções dinâmicas
-    # ---------------------------------------------------------
+    if not template_path.exists():
 
-    sections = config.get("sections", {}) or {}
+        raise FileNotFoundError(
+            f"Template não encontrado: "
+            f"{template_path}"
+        )
 
-    found = []
+    # ========================================================
+    # 2. ABRE WORKBOOK
+    # ========================================================
 
-    # Primeiro encontra todos os marcadores antes de alterar
-    # a estrutura da planilha.
-    for section_name, section_cfg in sections.items():
+    wb = load_workbook(
+        template_path
+    )
+
+    # ========================================================
+    # 3. LOCALIZA A PLANILHA
+    # ========================================================
+
+    configured_sheet = config.get(
+        "sheet"
+    )
+
+    if configured_sheet:
+
+        if configured_sheet not in wb.sheetnames:
+
+            raise ValueError(
+                f"A planilha '{configured_sheet}' "
+                f"não existe no template. "
+                f"Planilhas disponíveis: "
+                f"{wb.sheetnames}"
+            )
+
+        ws = wb[
+            configured_sheet
+        ]
+
+    else:
+
+        ws = wb[
+            wb.sheetnames[0]
+        ]
+
+    # ========================================================
+    # 4. VARIÁVEIS
+    # ========================================================
+
+    variables = (
+        payload.get(
+            "variables",
+            {}
+        )
+        or {}
+    )
+
+    # ========================================================
+    # 5. SEÇÕES DINÂMICAS
+    # ========================================================
+    #
+    # IMPORTANTE:
+    # Localizamos os marcadores ANTES de substituir tokens.
+    # ========================================================
+
+    sections = (
+        config.get(
+            "sections",
+            {}
+        )
+        or {}
+    )
+
+    found_sections = []
+
+    for (
+        section_name,
+        section_cfg,
+    ) in sections.items():
 
         marker = section_cfg.get(
             "marker",
-            "{{" + section_name.upper() + "}}",
+            "{{"
+            + section_name.upper()
+            + "}}",
         )
 
-        pos = _find_marker(
+        position = _find_marker(
             ws,
             marker,
         )
 
-        if pos:
+        if position is None:
 
-            found.append(
-                (
-                    pos[0],
-                    pos[1],
-                    section_name,
-                    section_cfg,
-                    marker,
-                )
+            raise ValueError(
+                f"Marcador '{marker}' "
+                f"da seção '{section_name}' "
+                f"não encontrado no template."
             )
 
-    # ---------------------------------------------------------
-    # 6. Processa seções de baixo para cima
-    # ---------------------------------------------------------
-    #
-    # Isso é importante porque inserir linhas em uma seção
-    # inferior não altera a posição das seções superiores.
-    # ---------------------------------------------------------
+        marker_row = position[0]
+        marker_col = position[1]
+
+        found_sections.append(
+            (
+                marker_row,
+                marker_col,
+                section_name,
+                section_cfg,
+                marker,
+            )
+        )
+
+    # ========================================================
+    # 6. PROCESSA SEÇÕES DE BAIXO PARA CIMA
+    # ========================================================
 
     for (
         marker_row,
@@ -225,140 +436,299 @@ def generate(
         section_name,
         section_cfg,
         marker,
-    ) in sorted(found, key=lambda item: item[0], reverse=True):
+    ) in sorted(
+        found_sections,
+        key=lambda item: item[0],
+        reverse=True,
+    ):
 
         records = (
             payload
-            .get("sections", {})
-            .get(section_name, [])
+            .get(
+                "sections",
+                {}
+            )
+            .get(
+                section_name,
+                []
+            )
             or []
         )
 
-        template_row = int(
+        # ----------------------------------------------------
+        # LINHAS-MODELO
+        # ----------------------------------------------------
+
+        template_rows = (
             section_cfg.get(
-                "template_row",
-                marker_row + 1,
+                "template_rows"
             )
+            or []
         )
+
+        # Compatibilidade com configs antigos.
+        if not template_rows:
+
+            old_template_row = (
+                section_cfg.get(
+                    "template_row"
+                )
+            )
+
+            if old_template_row:
+
+                template_rows = [
+                    int(
+                        old_template_row
+                    )
+                ]
+
+        if not template_rows:
+
+            template_rows = [
+                marker_row
+            ]
+
+        template_rows = [
+            int(row)
+            for row
+            in template_rows
+        ]
+
+        # ----------------------------------------------------
+        # PRIMEIRA LINHA DOS DADOS
+        # ----------------------------------------------------
 
         start_row = int(
             section_cfg.get(
                 "start_row",
-                template_row,
+                template_rows[0],
             )
         )
 
+        # ----------------------------------------------------
+        # COLUNAS
+        # ----------------------------------------------------
+
         columns = (
-            section_cfg.get("columns", {})
+            section_cfg.get(
+                "columns",
+                {}
+            )
             or {}
         )
 
-        # -----------------------------------------------------
-        # Remove marcador
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # REMOVE MARCADOR
+        # ----------------------------------------------------
 
         marker_cell = ws.cell(
             marker_row,
             marker_col,
         )
 
-        if not isinstance(marker_cell, MergedCell):
+        if not isinstance(
+            marker_cell,
+            MergedCell,
+        ):
+
             marker_cell.value = None
 
-        # -----------------------------------------------------
-        # Se não houver registros
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # QUANTIDADE DE LINHAS-MODELO
+        # ----------------------------------------------------
 
-        if not records:
+        model_count = len(
+            template_rows
+        )
+
+        record_count = len(
+            records
+        )
+
+        # ----------------------------------------------------
+        # SEM REGISTROS
+        # ----------------------------------------------------
+
+        if record_count == 0:
 
             if section_cfg.get(
-                "delete_template_row_when_empty",
-                False,
+                "clear_template_rows_when_empty",
+                True,
             ):
-                ws.delete_rows(
-                    template_row,
-                    1,
-                )
+
+                for row_num in template_rows:
+
+                    for col in columns.values():
+
+                        target_cell = ws.cell(
+                            row_num,
+                            int(col),
+                        )
+
+                        if not isinstance(
+                            target_cell,
+                            MergedCell,
+                        ):
+
+                            target_cell.value = None
 
             continue
 
-        # -----------------------------------------------------
-        # Insere linhas adicionais
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # INSERE LINHAS ADICIONAIS
+        # ----------------------------------------------------
         #
-        # Já existe uma linha-modelo.
+        # Temos, no OSO:
         #
-        # 1 registro  -> 0 novas linhas
-        # 2 registros -> 1 nova linha
-        # 10 registros -> 9 novas linhas
-        # -----------------------------------------------------
+        # linha 10 = modelo A
+        # linha 11 = modelo B
+        #
+        # Portanto já existem 2 posições.
+        #
+        # 2 registros  -> insere 0
+        # 3 registros  -> insere 1
+        # 58 registros -> insere 56
+        # ----------------------------------------------------
 
-        if len(records) > 1:
+        additional_rows = max(
+            0,
+            record_count - model_count,
+        )
 
-            ws.insert_rows(
-                start_row + 1,
-                amount=len(records) - 1,
+        if additional_rows > 0:
+
+            insertion_row = (
+                start_row
+                + model_count
             )
 
-            # Replica o estilo da linha modelo.
-            for i in range(
-                1,
-                len(records),
-            ):
+            ws.insert_rows(
+                insertion_row,
+                amount=additional_rows,
+            )
 
-                target_row = start_row + i
+            # Atualiza área de impressão.
+            _update_print_area(
+                ws,
+                additional_rows,
+                insertion_row,
+            )
+
+        # ----------------------------------------------------
+        # APLICA ESTILO ZEBRADO
+        # ----------------------------------------------------
+        #
+        # Registro 1 -> modelo 10
+        # Registro 2 -> modelo 11
+        # Registro 3 -> modelo 10
+        # Registro 4 -> modelo 11
+        # ...
+        # ----------------------------------------------------
+
+        for index in range(
+            record_count
+        ):
+
+            target_row = (
+                start_row
+                + index
+            )
+
+            template_index = (
+                index
+                % model_count
+            )
+
+            source_row = (
+                template_rows[
+                    template_index
+                ]
+            )
+
+            # As linhas originais 10 e 11
+            # já possuem a formatação correta.
+            #
+            # Só precisamos copiar estilo
+            # quando chegarmos às novas linhas.
+            if target_row not in template_rows:
 
                 _copy_row_style(
                     ws,
-                    template_row,
+                    source_row,
                     target_row,
                     ws.max_column,
                 )
 
-        # -----------------------------------------------------
-        # Caso a linha inicial seja diferente da linha-modelo
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # PREENCHE OS REGISTROS
+        # ----------------------------------------------------
 
-        if start_row != template_row:
+        for (
+            index,
+            record,
+        ) in enumerate(
+            records
+        ):
 
-            _copy_row_style(
-                ws,
-                template_row,
-                start_row,
-                ws.max_column,
+            row_num = (
+                start_row
+                + index
             )
 
-        # -----------------------------------------------------
-        # Preenche registros
-        # -----------------------------------------------------
+            for (
+                field,
+                col,
+            ) in columns.items():
 
-        for idx, record in enumerate(records):
-
-            row_num = start_row + idx
-
-            for field, col in columns.items():
-
-                col_num = int(col)
+                col_num = int(
+                    col
+                )
 
                 target_cell = ws.cell(
                     row_num,
                     col_num,
                 )
 
-                # Não tenta escrever em célula interna
-                # pertencente a um merge.
-                if isinstance(target_cell, MergedCell):
+                if isinstance(
+                    target_cell,
+                    MergedCell,
+                ):
                     continue
 
-                target_cell.value = record.get(field)
+                value = record.get(
+                    field
+                )
 
-    # ---------------------------------------------------------
-    # 7. Salva arquivo em memória
-    # ---------------------------------------------------------
+                target_cell.value = value
+
+    # ========================================================
+    # 7. SUBSTITUI VARIÁVEIS SIMPLES
+    # ========================================================
+
+    _replace_variables(
+        ws,
+        variables,
+    )
+
+    # ========================================================
+    # 8. ALTERA NOME DA ABA
+    # ========================================================
+
+    _replace_sheet_title(
+        ws,
+        variables,
+    )
+
+    # ========================================================
+    # 9. SALVA EM MEMÓRIA
+    # ========================================================
 
     out = BytesIO()
 
-    wb.save(out)
+    wb.save(
+        out
+    )
 
     out.seek(0)
 
