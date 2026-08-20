@@ -7,6 +7,20 @@ template: "v1.xlsx"
 
 output_filename: "OSO.xlsx"
 
+# ========================================================
+# IMAGENS
+# ========================================================
+
+images:
+
+  logo:
+    path: "../../../assets/logo.png"
+    end_column: "U"
+    row: 1
+    width: 180
+    height: 55
+    horizontal_align: "right"
+
 
 sections:
 

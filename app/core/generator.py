@@ -5,7 +5,11 @@ from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
-from openpyxl.utils import get_column_letter
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+from openpyxl.drawing.xdr import XDRPositiveSize2D
+from openpyxl.utils import get_column_letter, column_index_from_string
+from openpyxl.utils.units import pixels_to_EMU
 
 
 # ============================================================
@@ -13,10 +17,6 @@ from openpyxl.utils import get_column_letter
 # ============================================================
 
 def _replace_tokens(value: Any, variables: dict) -> Any:
-    """
-    Substitui tokens no formato {{CAMPO}}.
-    """
-
     if not isinstance(value, str):
         return value
 
@@ -25,7 +25,6 @@ def _replace_tokens(value: Any, variables: dict) -> Any:
     for key, val in variables.items():
         token = "{{" + str(key) + "}}"
         replacement = "" if val is None else str(val)
-
         out = out.replace(token, replacement)
 
     return out
@@ -41,14 +40,6 @@ def _copy_row_style(
     target_row: int,
     max_col: int,
 ):
-    """
-    Copia apenas a formatação visual da linha.
-
-    NÃO copia merges.
-    NÃO copia valores.
-    NÃO copia fórmulas.
-    """
-
     for col in range(1, max_col + 1):
 
         src = ws.cell(source_row, col)
@@ -112,7 +103,6 @@ def _replace_variables(ws, variables: dict):
                 continue
 
             if isinstance(cell.value, str):
-
                 cell.value = _replace_tokens(
                     cell.value,
                     variables,
@@ -162,21 +152,10 @@ def _capture_and_remove_merges_below(
     ws,
     insertion_row: int,
 ):
-    """
-    Captura todos os merges localizados a partir da linha
-    onde novas linhas serão inseridas.
-
-    Eles são temporariamente removidos para impedir que
-    acabem dentro da área REGISTROS_API.
-
-    Retorna os merges que deverão ser recriados depois.
-    """
-
     merges_to_move = []
 
     for merged_range in list(ws.merged_cells.ranges):
 
-        # Merge completamente abaixo da área de inserção.
         if merged_range.min_row >= insertion_row:
 
             merges_to_move.append(
@@ -200,10 +179,6 @@ def _restore_shifted_merges(
     merges,
     row_offset: int,
 ):
-    """
-    Recria os merges do rodapé deslocando-os para baixo.
-    """
-
     if row_offset <= 0:
         return
 
@@ -242,13 +217,6 @@ def _remove_merges_from_data_area(
     record_count: int,
     max_data_col: int,
 ):
-    """
-    Regra de segurança:
-
-    NENHUMA célula da área dinâmica REGISTROS_API
-    pode permanecer mesclada.
-    """
-
     if record_count <= 0:
         return
 
@@ -264,24 +232,21 @@ def _remove_merges_from_data_area(
 
         row_overlap = not (
             merged_range.max_row < start_row
-            or
-            merged_range.min_row > end_row
+            or merged_range.min_row > end_row
         )
 
         col_overlap = (
-            merged_range.min_col
-            <= max_data_col
+            merged_range.min_col <= max_data_col
         )
 
         if row_overlap and col_overlap:
-
             ws.unmerge_cells(
                 str(merged_range)
             )
 
 
 # ============================================================
-# IMAGENS
+# IMAGENS EXISTENTES
 # ============================================================
 
 def _shift_images_below(
@@ -289,13 +254,6 @@ def _shift_images_below(
     insertion_row: int,
     row_offset: int,
 ):
-    """
-    Desloca imagens ancoradas abaixo da área dinâmica.
-
-    Imagens do cabeçalho, como a logo, permanecem
-    exatamente onde estão.
-    """
-
     if row_offset <= 0:
         return
 
@@ -319,6 +277,224 @@ def _shift_images_below(
 
 
 # ============================================================
+# NOVAS IMAGENS CONFIGURADAS
+# ============================================================
+
+def _column_width_to_pixels(width: float) -> int:
+    """
+    Aproxima a largura de uma coluna do Excel em pixels.
+    """
+    if width is None:
+        width = 8.43
+
+    if width < 1:
+        return int(width * 12)
+
+    return int(width * 7 + 5)
+
+
+def _add_configured_images(
+    ws,
+    images_config: dict,
+    config_dir: Path,
+):
+    """
+    Insere imagens definidas no config.yaml.
+
+    Suporta alinhamento pela borda direita de uma coluna.
+
+    Exemplo:
+
+    images:
+      logo:
+        path: "../../assets/logo.png"
+        end_column: "U"
+        row: 1
+        width: 180
+        height: 55
+        horizontal_align: "right"
+    """
+
+    if not images_config:
+        return
+
+    for image_name, image_cfg in images_config.items():
+
+        image_path = (
+            config_dir
+            / image_cfg["path"]
+        ).resolve()
+
+        if not image_path.exists():
+            raise FileNotFoundError(
+                f"Imagem '{image_name}' não encontrada: "
+                f"{image_path}"
+            )
+
+        img = XLImage(
+            str(image_path)
+        )
+
+        width = int(
+            image_cfg.get(
+                "width",
+                img.width,
+            )
+        )
+
+        height = int(
+            image_cfg.get(
+                "height",
+                img.height,
+            )
+        )
+
+        img.width = width
+        img.height = height
+
+        row = int(
+            image_cfg.get(
+                "row",
+                1,
+            )
+        )
+
+        end_column_letter = str(
+            image_cfg.get(
+                "end_column",
+                "A",
+            )
+        ).upper()
+
+        horizontal_align = str(
+            image_cfg.get(
+                "horizontal_align",
+                "left",
+            )
+        ).lower()
+
+        end_col = column_index_from_string(
+            end_column_letter
+        )
+
+        # ----------------------------------------------------
+        # ALINHAMENTO À DIREITA
+        # ----------------------------------------------------
+
+        if horizontal_align == "right":
+
+            # Calcula quantos pixels existem da coluna A
+            # até o final da coluna configurada.
+            total_pixels = 0
+
+            for col_index in range(
+                1,
+                end_col + 1,
+            ):
+
+                letter = get_column_letter(
+                    col_index
+                )
+
+                column_width = (
+                    ws.column_dimensions[
+                        letter
+                    ].width
+                )
+
+                total_pixels += (
+                    _column_width_to_pixels(
+                        column_width
+                    )
+                )
+
+            # A imagem deve terminar exatamente
+            # no final da coluna U.
+            start_pixels = (
+                total_pixels
+                - width
+            )
+
+            if start_pixels < 0:
+                start_pixels = 0
+
+            # Descobre em qual coluna a imagem começa.
+            accumulated_pixels = 0
+            start_col = 1
+            offset_pixels = 0
+
+            for col_index in range(
+                1,
+                end_col + 1,
+            ):
+
+                letter = get_column_letter(
+                    col_index
+                )
+
+                column_pixels = (
+                    _column_width_to_pixels(
+                        ws.column_dimensions[
+                            letter
+                        ].width
+                    )
+                )
+
+                if (
+                    accumulated_pixels
+                    + column_pixels
+                    > start_pixels
+                ):
+                    start_col = col_index
+                    offset_pixels = (
+                        start_pixels
+                        - accumulated_pixels
+                    )
+                    break
+
+                accumulated_pixels += (
+                    column_pixels
+                )
+
+            marker = AnchorMarker(
+                col=start_col - 1,
+                colOff=pixels_to_EMU(
+                    offset_pixels
+                ),
+                row=row - 1,
+                rowOff=0,
+            )
+
+            size = XDRPositiveSize2D(
+                cx=pixels_to_EMU(width),
+                cy=pixels_to_EMU(height),
+            )
+
+            img.anchor = OneCellAnchor(
+                _from=marker,
+                ext=size,
+            )
+
+            ws.add_image(img)
+
+        # ----------------------------------------------------
+        # ALINHAMENTO SIMPLES
+        # ----------------------------------------------------
+
+        else:
+
+            anchor = (
+                f"{end_column_letter}"
+                f"{row}"
+            )
+
+            ws.add_image(
+                img,
+                anchor,
+            )
+
+
+# ============================================================
 # ÁREA DE IMPRESSÃO
 # ============================================================
 
@@ -327,7 +503,6 @@ def _update_print_area(
     inserted_rows: int,
     insertion_start_row: int,
 ):
-
     if inserted_rows <= 0:
         return
 
@@ -388,11 +563,24 @@ def generate(
     )
 
     if not template_path.exists():
-
         raise FileNotFoundError(
             f"Template não encontrado: "
             f"{template_path}"
         )
+
+    # Diretório onde está o config.yaml:
+    #
+    # tenants/sjc/reports/oso/
+    #
+    # O template fica em:
+    #
+    # tenants/sjc/reports/oso/templates/v1.xlsx
+    #
+    config_dir = (
+        template_path
+        .parent
+        .parent
+    )
 
     # ========================================================
     # ABRE WORKBOOK
@@ -413,7 +601,6 @@ def generate(
     if configured_sheet:
 
         if configured_sheet not in wb.sheetnames:
-
             raise ValueError(
                 f"A planilha '{configured_sheet}' "
                 f"não existe no template. "
@@ -423,10 +610,20 @@ def generate(
         ws = wb[configured_sheet]
 
     else:
-
         ws = wb[
             wb.sheetnames[0]
         ]
+
+    # ========================================================
+    # REMOVE IMAGENS ORIGINAIS DO TEMPLATE
+    # ========================================================
+    #
+    # Como agora as imagens são controladas pelo config.yaml,
+    # removemos as imagens embutidas para evitar duplicidade.
+    # ========================================================
+
+    if config.get("images"):
+        ws._images = []
 
     # ========================================================
     # VARIÁVEIS
@@ -454,7 +651,6 @@ def generate(
 
     found_sections = []
 
-    # Localiza marcadores ANTES da substituição dos tokens.
     for (
         section_name,
         section_cfg,
@@ -473,7 +669,6 @@ def generate(
         )
 
         if position is None:
-
             raise ValueError(
                 f"Marcador '{marker}' "
                 f"da seção '{section_name}' "
@@ -490,7 +685,7 @@ def generate(
         )
 
     # ========================================================
-    # PROCESSA DE BAIXO PARA CIMA
+    # PROCESSA SEÇÕES
     # ========================================================
 
     for (
@@ -511,10 +706,6 @@ def generate(
             or []
         )
 
-        # ----------------------------------------------------
-        # LINHAS MODELO
-        # ----------------------------------------------------
-
         template_rows = (
             section_cfg.get(
                 "template_rows"
@@ -531,7 +722,6 @@ def generate(
             )
 
             if old_template_row:
-
                 template_rows = [
                     int(old_template_row)
                 ]
@@ -561,10 +751,6 @@ def generate(
             or {}
         )
 
-        # ----------------------------------------------------
-        # REMOVE MARCADOR
-        # ----------------------------------------------------
-
         marker_cell = ws.cell(
             marker_row,
             marker_col,
@@ -574,7 +760,6 @@ def generate(
             marker_cell,
             MergedCell,
         ):
-
             marker_cell.value = None
 
         model_count = len(
@@ -584,10 +769,6 @@ def generate(
         record_count = len(
             records
         )
-
-        # ----------------------------------------------------
-        # SEM REGISTROS
-        # ----------------------------------------------------
 
         if record_count == 0:
 
@@ -604,14 +785,9 @@ def generate(
                         cell,
                         MergedCell,
                     ):
-
                         cell.value = None
 
             continue
-
-        # ----------------------------------------------------
-        # QUANTIDADE DE NOVAS LINHAS
-        # ----------------------------------------------------
 
         additional_rows = max(
             0,
@@ -623,15 +799,10 @@ def generate(
             + model_count
         )
 
-        # ----------------------------------------------------
-        # MOVE RODAPÉ
-        # ----------------------------------------------------
-
         footer_merges = []
 
         if additional_rows > 0:
 
-            # Captura merges do rodapé antes da inserção.
             footer_merges = (
                 _capture_and_remove_merges_below(
                     ws,
@@ -639,36 +810,28 @@ def generate(
                 )
             )
 
-            # Insere novas linhas.
             ws.insert_rows(
                 insertion_row,
                 amount=additional_rows,
             )
 
-            # Recria os merges nas novas posições.
             _restore_shifted_merges(
                 ws,
                 footer_merges,
                 additional_rows,
             )
 
-            # Desloca imagens que estejam abaixo.
             _shift_images_below(
                 ws,
                 insertion_row,
                 additional_rows,
             )
 
-            # Expande área de impressão.
             _update_print_area(
                 ws,
                 additional_rows,
                 insertion_row,
             )
-
-        # ----------------------------------------------------
-        # GARANTE QUE REGISTROS NÃO TENHAM MERGES
-        # ----------------------------------------------------
 
         max_data_col = max(
             [
@@ -686,10 +849,7 @@ def generate(
             max_data_col,
         )
 
-        # ----------------------------------------------------
-        # APLICA ZEBRADO
-        # ----------------------------------------------------
-
+        # Zebrado
         for index in range(
             record_count
         ):
@@ -719,10 +879,7 @@ def generate(
                     max_data_col,
                 )
 
-        # ----------------------------------------------------
-        # PREENCHE DADOS
-        # ----------------------------------------------------
-
+        # Dados
         for (
             index,
             record,
@@ -749,13 +906,11 @@ def generate(
                     target_cell,
                     MergedCell,
                 ):
-
                     raise ValueError(
                         f"Célula "
                         f"{target_cell.coordinate} "
                         f"está mesclada dentro da "
-                        f"área REGISTROS_API. "
-                        f"Isso não é permitido."
+                        f"área REGISTROS_API."
                     )
 
                 target_cell.value = (
@@ -778,6 +933,19 @@ def generate(
     _replace_sheet_title(
         ws,
         variables,
+    )
+
+    # ========================================================
+    # ADICIONA IMAGENS CONFIGURADAS
+    # ========================================================
+
+    _add_configured_images(
+        ws,
+        config.get(
+            "images",
+            {}
+        ),
+        config_dir,
     )
 
     # ========================================================
