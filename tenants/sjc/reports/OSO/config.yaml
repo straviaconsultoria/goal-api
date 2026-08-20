@@ -14,7 +14,7 @@ output_filename: "OSO.xlsx"
 images:
 
   logo:
-    path: "../assets/logo.png"
+    path: "../../assets/logo.png"
     end_column: "U"
     row: 1
     width: 180
