@@ -27,8 +27,8 @@ images:
     row: 1
 
     # Tamanho da imagem em pixels.
-    width: 180
-    height: 55
+    width: 394
+    height: 74
 
     horizontal_align: "right"
 
