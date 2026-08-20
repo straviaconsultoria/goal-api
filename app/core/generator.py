@@ -296,18 +296,18 @@ def _column_width_to_pixels(width: float) -> int:
 def _add_configured_images(
     ws,
     images_config: dict,
-    config_dir: Path,
+    tenant_dir: Path,
 ):
     """
     Insere imagens definidas no config.yaml.
 
-    Suporta alinhamento pela borda direita de uma coluna.
+    O path é relativo à raiz do tenant.
 
     Exemplo:
 
     images:
       logo:
-        path: "../../assets/logo.png"
+        path: "assets/logo.png"
         end_column: "U"
         row: 1
         width: 180
@@ -321,7 +321,7 @@ def _add_configured_images(
     for image_name, image_cfg in images_config.items():
 
         image_path = (
-            config_dir
+            tenant_dir
             / image_cfg["path"]
         ).resolve()
 
@@ -409,7 +409,7 @@ def _add_configured_images(
                 )
 
             # A imagem deve terminar exatamente
-            # no final da coluna U.
+            # no final da coluna configurada.
             start_pixels = (
                 total_pixels
                 - width
@@ -568,16 +568,22 @@ def generate(
             f"{template_path}"
         )
 
-    # Diretório onde está o config.yaml:
+    # Diretório do relatório:
     #
-    # tenants/sjc/reports/oso/
+    # /app/tenants/sjc/reports/OSO
     #
-    # O template fica em:
-    #
-    # tenants/sjc/reports/oso/templates/v1.xlsx
-    #
-    config_dir = (
+    report_dir = (
         template_path
+        .parent
+        .parent
+    )
+
+    # Diretório do tenant:
+    #
+    # /app/tenants/sjc
+    #
+    tenant_dir = (
+        report_dir
         .parent
         .parent
     )
@@ -945,7 +951,7 @@ def generate(
             "images",
             {}
         ),
-        config_dir,
+        tenant_dir,
     )
 
     # ========================================================

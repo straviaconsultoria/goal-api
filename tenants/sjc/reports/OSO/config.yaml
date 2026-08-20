@@ -7,6 +7,7 @@ template: "v1.xlsx"
 
 output_filename: "OSO.xlsx"
 
+
 # ========================================================
 # IMAGENS
 # ========================================================
@@ -14,25 +15,37 @@ output_filename: "OSO.xlsx"
 images:
 
   logo:
-    path: "../../assets/logo.png"
+    # Caminho relativo à pasta do TENANT:
+    # tenants/sjc/assets/logo.png
+    path: "assets/logo.png"
+
+    # A borda direita da imagem deve terminar
+    # exatamente no final da coluna U.
     end_column: "U"
+
+    # Linha onde a imagem será posicionada.
     row: 1
+
+    # Tamanho da imagem em pixels.
     width: 180
     height: 55
+
     horizontal_align: "right"
 
+
+# ========================================================
+# SEÇÕES DINÂMICAS
+# ========================================================
 
 sections:
 
   registros_api:
 
-    # Marcador técnico localizado em X10.
     marker: "{{REGISTROS_API}}"
 
-    # Primeira linha dos registros.
     start_row: 10
 
-    # Linhas-modelo utilizadas alternadamente para preservar o zebrado.
+    # Duas linhas-modelo para preservar o zebrado.
     template_rows:
       - 10
       - 11
@@ -40,18 +53,13 @@ sections:
     clear_template_rows_when_empty: true
 
 
-    # ========================================================
-    # MAPEAMENTO DOS CAMPOS RECEBIDOS DA API/N8N
-    # PARA AS COLUNAS DO EXCEL
-    # ========================================================
+    # ====================================================
+    # MAPEAMENTO JSON -> EXCEL
+    # ====================================================
 
     columns:
 
-      # ------------------------------------------------------
-      # QUADRANTE 1
-      # Excel A:G
-      # ------------------------------------------------------
-
+      # QUADRANTE 1 - A:G
       1_BLOCO: 1
       1_ITINERARIO: 2
       1_HORARIO_INICIO: 3
@@ -60,12 +68,7 @@ sections:
       1_HORARIO_FIM: 6
       1_HEADWAY: 7
 
-
-      # ------------------------------------------------------
-      # QUADRANTE 2
-      # Excel H:N
-      # ------------------------------------------------------
-
+      # QUADRANTE 2 - H:N
       2_BLOCO: 8
       2_ITINERARIO: 9
       2_HORARIO_INICIO: 10
@@ -74,24 +77,12 @@ sections:
       2_HORARIO_FIM: 13
       2_HEADWAY: 14
 
-
-      # ------------------------------------------------------
-      # QUADRANTE 3
-      # DESLOCAMENTO PARA RECARGA
-      # Excel O:Q
-      # ------------------------------------------------------
-
+      # QUADRANTE 3 - O:Q
       3_DESLOCAMENTO_INICIO: 15
       3_DESLOCAMENTO_FIM: 16
       3_SOC_ANTERIOR_RECARGA: 17
 
-
-      # ------------------------------------------------------
-      # QUADRANTE 4
-      # RECARGA PROGRAMADA
-      # Excel R:U
-      # ------------------------------------------------------
-
+      # QUADRANTE 4 - R:U
       4_HORARIO_INICIO: 18
       4_HORARIO_FIM: 19
       4_SOC_APOS_RECARGA: 20
