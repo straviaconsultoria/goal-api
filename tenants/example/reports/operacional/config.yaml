@@ -1,0 +1,17 @@
+name: Relatório Operacional - Exemplo
+template: v1.xlsx
+sheet: Relatorio
+output_filename: relatorio_operacional.xlsx
+
+# Campos simples do Excel podem usar {{campo}} e são preenchidos por payload.variables.
+# Seções dinâmicas usam um marcador e uma linha-modelo logo abaixo dele.
+sections:
+  viagens:
+    marker: "{{VIAGENS}}"
+    template_row: 5
+    start_row: 5
+    columns:
+      horario: 1
+      origem: 2
+      destino: 3
+      bloco: 4
