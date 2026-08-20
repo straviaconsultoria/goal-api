@@ -6,7 +6,6 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.cell_range import CellRange
 
 
 # ============================================================
@@ -15,11 +14,7 @@ from openpyxl.worksheet.cell_range import CellRange
 
 def _replace_tokens(value: Any, variables: dict) -> Any:
     """
-    Substitui tokens no formato {{CAMPO}} pelos valores recebidos
-    em payload["variables"].
-
-    Exemplo:
-        {{LINHA}} -> 082
+    Substitui tokens no formato {{CAMPO}}.
     """
 
     if not isinstance(value, str):
@@ -31,16 +26,13 @@ def _replace_tokens(value: Any, variables: dict) -> Any:
         token = "{{" + str(key) + "}}"
         replacement = "" if val is None else str(val)
 
-        out = out.replace(
-            token,
-            replacement,
-        )
+        out = out.replace(token, replacement)
 
     return out
 
 
 # ============================================================
-# CÓPIA DE ESTILO
+# ESTILO
 # ============================================================
 
 def _copy_row_style(
@@ -50,30 +42,17 @@ def _copy_row_style(
     max_col: int,
 ):
     """
-    Copia toda a formatação visual de uma linha-modelo.
+    Copia apenas a formatação visual da linha.
 
-    Utilizado para preservar:
-    - zebrado
-    - bordas
-    - preenchimento
-    - fonte
-    - alinhamento
-    - formatos numéricos
-    - proteção
-    - altura da linha
+    NÃO copia merges.
+    NÃO copia valores.
+    NÃO copia fórmulas.
     """
 
     for col in range(1, max_col + 1):
 
-        src = ws.cell(
-            source_row,
-            col,
-        )
-
-        dst = ws.cell(
-            target_row,
-            col,
-        )
+        src = ws.cell(source_row, col)
+        dst = ws.cell(target_row, col)
 
         if isinstance(src, MergedCell):
             continue
@@ -89,9 +68,7 @@ def _copy_row_style(
         dst.border = copy(src.border)
         dst.alignment = copy(src.alignment)
         dst.protection = copy(src.protection)
-
-        if src.number_format:
-            dst.number_format = src.number_format
+        dst.number_format = src.number_format
 
     source_height = ws.row_dimensions[source_row].height
 
@@ -103,16 +80,7 @@ def _copy_row_style(
 # MARCADORES
 # ============================================================
 
-def _find_marker(
-    ws,
-    marker: str,
-):
-    """
-    Procura um marcador técnico dentro da planilha.
-
-    Exemplo:
-        {{REGISTROS_API}}
-    """
+def _find_marker(ws, marker: str):
 
     for row in ws.iter_rows():
 
@@ -122,32 +90,16 @@ def _find_marker(
                 continue
 
             if cell.value == marker:
-
-                return (
-                    cell.row,
-                    cell.column,
-                )
+                return cell.row, cell.column
 
     return None
 
 
 # ============================================================
-# VARIÁVEIS DO TEMPLATE
+# VARIÁVEIS
 # ============================================================
 
-def _replace_variables(
-    ws,
-    variables: dict,
-):
-    """
-    Substitui variáveis simples dentro das células.
-
-    Exemplo:
-        {{LINHA}}
-        {{ITINERARIO}}
-        {{TIPO_DIA}}
-        {{ROUTE_1}}
-    """
+def _replace_variables(ws, variables: dict):
 
     if not variables:
         return
@@ -171,16 +123,7 @@ def _replace_variables(
 # NOME DA ABA
 # ============================================================
 
-def _replace_sheet_title(
-    ws,
-    variables: dict,
-):
-    """
-    Permite utilizar tokens também no nome da aba.
-
-    Exemplo:
-        {{LINHA}} -> 082
-    """
+def _replace_sheet_title(ws, variables: dict):
 
     new_title = _replace_tokens(
         ws.title,
@@ -190,7 +133,6 @@ def _replace_sheet_title(
     if new_title == ws.title:
         return
 
-    # Caracteres não permitidos pelo Excel em nomes de abas.
     invalid_chars = [
         "\\",
         "/",
@@ -202,18 +144,178 @@ def _replace_sheet_title(
     ]
 
     for char in invalid_chars:
-        new_title = new_title.replace(
-            char,
-            "-",
-        )
+        new_title = new_title.replace(char, "-")
 
-    # Excel limita nomes de abas a 31 caracteres.
     new_title = new_title[:31].strip()
 
     if not new_title:
         new_title = "Relatorio"
 
     ws.title = new_title
+
+
+# ============================================================
+# MERGES
+# ============================================================
+
+def _capture_and_remove_merges_below(
+    ws,
+    insertion_row: int,
+):
+    """
+    Captura todos os merges localizados a partir da linha
+    onde novas linhas serão inseridas.
+
+    Eles são temporariamente removidos para impedir que
+    acabem dentro da área REGISTROS_API.
+
+    Retorna os merges que deverão ser recriados depois.
+    """
+
+    merges_to_move = []
+
+    for merged_range in list(ws.merged_cells.ranges):
+
+        # Merge completamente abaixo da área de inserção.
+        if merged_range.min_row >= insertion_row:
+
+            merges_to_move.append(
+                (
+                    merged_range.min_col,
+                    merged_range.min_row,
+                    merged_range.max_col,
+                    merged_range.max_row,
+                )
+            )
+
+            ws.unmerge_cells(
+                str(merged_range)
+            )
+
+    return merges_to_move
+
+
+def _restore_shifted_merges(
+    ws,
+    merges,
+    row_offset: int,
+):
+    """
+    Recria os merges do rodapé deslocando-os para baixo.
+    """
+
+    if row_offset <= 0:
+        return
+
+    for (
+        min_col,
+        min_row,
+        max_col,
+        max_row,
+    ) in merges:
+
+        new_min_row = min_row + row_offset
+        new_max_row = max_row + row_offset
+
+        start_cell = (
+            f"{get_column_letter(min_col)}"
+            f"{new_min_row}"
+        )
+
+        end_cell = (
+            f"{get_column_letter(max_col)}"
+            f"{new_max_row}"
+        )
+
+        ws.merge_cells(
+            f"{start_cell}:{end_cell}"
+        )
+
+
+# ============================================================
+# GARANTIA: REGISTROS API SEM MERGES
+# ============================================================
+
+def _remove_merges_from_data_area(
+    ws,
+    start_row: int,
+    record_count: int,
+    max_data_col: int,
+):
+    """
+    Regra de segurança:
+
+    NENHUMA célula da área dinâmica REGISTROS_API
+    pode permanecer mesclada.
+    """
+
+    if record_count <= 0:
+        return
+
+    end_row = (
+        start_row
+        + record_count
+        - 1
+    )
+
+    for merged_range in list(
+        ws.merged_cells.ranges
+    ):
+
+        row_overlap = not (
+            merged_range.max_row < start_row
+            or
+            merged_range.min_row > end_row
+        )
+
+        col_overlap = (
+            merged_range.min_col
+            <= max_data_col
+        )
+
+        if row_overlap and col_overlap:
+
+            ws.unmerge_cells(
+                str(merged_range)
+            )
+
+
+# ============================================================
+# IMAGENS
+# ============================================================
+
+def _shift_images_below(
+    ws,
+    insertion_row: int,
+    row_offset: int,
+):
+    """
+    Desloca imagens ancoradas abaixo da área dinâmica.
+
+    Imagens do cabeçalho, como a logo, permanecem
+    exatamente onde estão.
+    """
+
+    if row_offset <= 0:
+        return
+
+    for image in ws._images:
+
+        anchor = image.anchor
+
+        if not hasattr(anchor, "_from"):
+            continue
+
+        image_row = (
+            anchor._from.row + 1
+        )
+
+        if image_row >= insertion_row:
+
+            anchor._from.row += row_offset
+
+            if hasattr(anchor, "_to"):
+                anchor._to.row += row_offset
 
 
 # ============================================================
@@ -225,15 +327,6 @@ def _update_print_area(
     inserted_rows: int,
     insertion_start_row: int,
 ):
-    """
-    Expande a área de impressão quando novas linhas são inseridas.
-
-    Exemplo original:
-        A1:U15
-
-    Se forem adicionadas 56 linhas:
-        A1:U71
-    """
 
     if inserted_rows <= 0:
         return
@@ -242,8 +335,6 @@ def _update_print_area(
 
     if not print_area:
         return
-
-    ranges = []
 
     try:
         ranges = list(print_area.ranges)
@@ -277,11 +368,13 @@ def _update_print_area(
         )
 
     if new_ranges:
-        ws.print_area = ",".join(new_ranges)
+        ws.print_area = ",".join(
+            new_ranges
+        )
 
 
 # ============================================================
-# GERAÇÃO DO RELATÓRIO
+# GERADOR
 # ============================================================
 
 def generate(
@@ -289,26 +382,6 @@ def generate(
     config: dict,
     payload: dict,
 ) -> BytesIO:
-    """
-    Motor genérico de geração de relatórios Excel.
-
-    Suporta:
-
-    - template XLSX
-    - variáveis {{TOKEN}}
-    - seções dinâmicas
-    - múltiplas linhas-modelo
-    - zebrado
-    - quantidade variável de registros
-    - rodapé deslocável
-    - células mescladas
-    - nome de aba dinâmico
-    - atualização da área de impressão
-    """
-
-    # ========================================================
-    # 1. VALIDA TEMPLATE
-    # ========================================================
 
     template_path = Path(
         template_path
@@ -322,7 +395,7 @@ def generate(
         )
 
     # ========================================================
-    # 2. ABRE WORKBOOK
+    # ABRE WORKBOOK
     # ========================================================
 
     wb = load_workbook(
@@ -330,7 +403,7 @@ def generate(
     )
 
     # ========================================================
-    # 3. LOCALIZA A PLANILHA
+    # SELECIONA ABA
     # ========================================================
 
     configured_sheet = config.get(
@@ -344,13 +417,10 @@ def generate(
             raise ValueError(
                 f"A planilha '{configured_sheet}' "
                 f"não existe no template. "
-                f"Planilhas disponíveis: "
-                f"{wb.sheetnames}"
+                f"Disponíveis: {wb.sheetnames}"
             )
 
-        ws = wb[
-            configured_sheet
-        ]
+        ws = wb[configured_sheet]
 
     else:
 
@@ -359,7 +429,7 @@ def generate(
         ]
 
     # ========================================================
-    # 4. VARIÁVEIS
+    # VARIÁVEIS
     # ========================================================
 
     variables = (
@@ -371,11 +441,7 @@ def generate(
     )
 
     # ========================================================
-    # 5. SEÇÕES DINÂMICAS
-    # ========================================================
-    #
-    # IMPORTANTE:
-    # Localizamos os marcadores ANTES de substituir tokens.
+    # SEÇÕES
     # ========================================================
 
     sections = (
@@ -388,6 +454,7 @@ def generate(
 
     found_sections = []
 
+    # Localiza marcadores ANTES da substituição dos tokens.
     for (
         section_name,
         section_cfg,
@@ -410,24 +477,20 @@ def generate(
             raise ValueError(
                 f"Marcador '{marker}' "
                 f"da seção '{section_name}' "
-                f"não encontrado no template."
+                f"não encontrado."
             )
-
-        marker_row = position[0]
-        marker_col = position[1]
 
         found_sections.append(
             (
-                marker_row,
-                marker_col,
+                position[0],
+                position[1],
                 section_name,
                 section_cfg,
-                marker,
             )
         )
 
     # ========================================================
-    # 6. PROCESSA SEÇÕES DE BAIXO PARA CIMA
+    # PROCESSA DE BAIXO PARA CIMA
     # ========================================================
 
     for (
@@ -435,7 +498,6 @@ def generate(
         marker_col,
         section_name,
         section_cfg,
-        marker,
     ) in sorted(
         found_sections,
         key=lambda item: item[0],
@@ -444,19 +506,13 @@ def generate(
 
         records = (
             payload
-            .get(
-                "sections",
-                {}
-            )
-            .get(
-                section_name,
-                []
-            )
+            .get("sections", {})
+            .get(section_name, [])
             or []
         )
 
         # ----------------------------------------------------
-        # LINHAS-MODELO
+        # LINHAS MODELO
         # ----------------------------------------------------
 
         template_rows = (
@@ -466,7 +522,6 @@ def generate(
             or []
         )
 
-        # Compatibilidade com configs antigos.
         if not template_rows:
 
             old_template_row = (
@@ -478,26 +533,18 @@ def generate(
             if old_template_row:
 
                 template_rows = [
-                    int(
-                        old_template_row
-                    )
+                    int(old_template_row)
                 ]
 
         if not template_rows:
-
             template_rows = [
                 marker_row
             ]
 
         template_rows = [
             int(row)
-            for row
-            in template_rows
+            for row in template_rows
         ]
-
-        # ----------------------------------------------------
-        # PRIMEIRA LINHA DOS DADOS
-        # ----------------------------------------------------
 
         start_row = int(
             section_cfg.get(
@@ -505,10 +552,6 @@ def generate(
                 template_rows[0],
             )
         )
-
-        # ----------------------------------------------------
-        # COLUNAS
-        # ----------------------------------------------------
 
         columns = (
             section_cfg.get(
@@ -534,10 +577,6 @@ def generate(
 
             marker_cell.value = None
 
-        # ----------------------------------------------------
-        # QUANTIDADE DE LINHAS-MODELO
-        # ----------------------------------------------------
-
         model_count = len(
             template_rows
         )
@@ -552,43 +591,26 @@ def generate(
 
         if record_count == 0:
 
-            if section_cfg.get(
-                "clear_template_rows_when_empty",
-                True,
-            ):
+            for row_num in template_rows:
 
-                for row_num in template_rows:
+                for col in columns.values():
 
-                    for col in columns.values():
+                    cell = ws.cell(
+                        row_num,
+                        int(col),
+                    )
 
-                        target_cell = ws.cell(
-                            row_num,
-                            int(col),
-                        )
+                    if not isinstance(
+                        cell,
+                        MergedCell,
+                    ):
 
-                        if not isinstance(
-                            target_cell,
-                            MergedCell,
-                        ):
-
-                            target_cell.value = None
+                        cell.value = None
 
             continue
 
         # ----------------------------------------------------
-        # INSERE LINHAS ADICIONAIS
-        # ----------------------------------------------------
-        #
-        # Temos, no OSO:
-        #
-        # linha 10 = modelo A
-        # linha 11 = modelo B
-        #
-        # Portanto já existem 2 posições.
-        #
-        # 2 registros  -> insere 0
-        # 3 registros  -> insere 1
-        # 58 registros -> insere 56
+        # QUANTIDADE DE NOVAS LINHAS
         # ----------------------------------------------------
 
         additional_rows = max(
@@ -596,19 +618,48 @@ def generate(
             record_count - model_count,
         )
 
+        insertion_row = (
+            start_row
+            + model_count
+        )
+
+        # ----------------------------------------------------
+        # MOVE RODAPÉ
+        # ----------------------------------------------------
+
+        footer_merges = []
+
         if additional_rows > 0:
 
-            insertion_row = (
-                start_row
-                + model_count
+            # Captura merges do rodapé antes da inserção.
+            footer_merges = (
+                _capture_and_remove_merges_below(
+                    ws,
+                    insertion_row,
+                )
             )
 
+            # Insere novas linhas.
             ws.insert_rows(
                 insertion_row,
                 amount=additional_rows,
             )
 
-            # Atualiza área de impressão.
+            # Recria os merges nas novas posições.
+            _restore_shifted_merges(
+                ws,
+                footer_merges,
+                additional_rows,
+            )
+
+            # Desloca imagens que estejam abaixo.
+            _shift_images_below(
+                ws,
+                insertion_row,
+                additional_rows,
+            )
+
+            # Expande área de impressão.
             _update_print_area(
                 ws,
                 additional_rows,
@@ -616,14 +667,27 @@ def generate(
             )
 
         # ----------------------------------------------------
-        # APLICA ESTILO ZEBRADO
+        # GARANTE QUE REGISTROS NÃO TENHAM MERGES
         # ----------------------------------------------------
-        #
-        # Registro 1 -> modelo 10
-        # Registro 2 -> modelo 11
-        # Registro 3 -> modelo 10
-        # Registro 4 -> modelo 11
-        # ...
+
+        max_data_col = max(
+            [
+                int(col)
+                for col
+                in columns.values()
+            ],
+            default=1,
+        )
+
+        _remove_merges_from_data_area(
+            ws,
+            start_row,
+            record_count,
+            max_data_col,
+        )
+
+        # ----------------------------------------------------
+        # APLICA ZEBRADO
         # ----------------------------------------------------
 
         for index in range(
@@ -646,30 +710,23 @@ def generate(
                 ]
             )
 
-            # As linhas originais 10 e 11
-            # já possuem a formatação correta.
-            #
-            # Só precisamos copiar estilo
-            # quando chegarmos às novas linhas.
             if target_row not in template_rows:
 
                 _copy_row_style(
                     ws,
                     source_row,
                     target_row,
-                    ws.max_column,
+                    max_data_col,
                 )
 
         # ----------------------------------------------------
-        # PREENCHE OS REGISTROS
+        # PREENCHE DADOS
         # ----------------------------------------------------
 
         for (
             index,
             record,
-        ) in enumerate(
-            records
-        ):
+        ) in enumerate(records):
 
             row_num = (
                 start_row
@@ -681,9 +738,7 @@ def generate(
                 col,
             ) in columns.items():
 
-                col_num = int(
-                    col
-                )
+                col_num = int(col)
 
                 target_cell = ws.cell(
                     row_num,
@@ -694,16 +749,21 @@ def generate(
                     target_cell,
                     MergedCell,
                 ):
-                    continue
 
-                value = record.get(
-                    field
+                    raise ValueError(
+                        f"Célula "
+                        f"{target_cell.coordinate} "
+                        f"está mesclada dentro da "
+                        f"área REGISTROS_API. "
+                        f"Isso não é permitido."
+                    )
+
+                target_cell.value = (
+                    record.get(field)
                 )
 
-                target_cell.value = value
-
     # ========================================================
-    # 7. SUBSTITUI VARIÁVEIS SIMPLES
+    # SUBSTITUI TOKENS
     # ========================================================
 
     _replace_variables(
@@ -712,7 +772,7 @@ def generate(
     )
 
     # ========================================================
-    # 8. ALTERA NOME DA ABA
+    # NOME DA ABA
     # ========================================================
 
     _replace_sheet_title(
@@ -721,14 +781,12 @@ def generate(
     )
 
     # ========================================================
-    # 9. SALVA EM MEMÓRIA
+    # SALVA
     # ========================================================
 
     out = BytesIO()
 
-    wb.save(
-        out
-    )
+    wb.save(out)
 
     out.seek(0)
 
