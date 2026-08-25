@@ -8,6 +8,7 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
 from openpyxl.drawing.xdr import XDRPositiveSize2D
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.utils.units import pixels_to_EMU
 
@@ -65,6 +66,122 @@ def _copy_row_style(
 
     if source_height is not None:
         ws.row_dimensions[target_row].height = source_height
+
+
+# ============================================================
+# CORES POR TIPO DE DESLOCAMENTO
+# ============================================================
+#
+# ENTRADA
+# -> VERDE
+#
+# FECHAMENTO
+# -> AZUL
+#
+# ESPECIAL
+# -> AMARELO
+#
+# Se o tipo for null/vazio, nenhuma alteração de cor é feita.
+# O estilo original do template é preservado.
+# ============================================================
+
+FILL_ENTRADA = PatternFill(
+    fill_type="solid",
+    fgColor="92D050",
+)
+
+FILL_FECHAMENTO = PatternFill(
+    fill_type="solid",
+    fgColor="5B9BD5",
+)
+
+FILL_ESPECIAL = PatternFill(
+    fill_type="solid",
+    fgColor="FFD966",
+)
+
+
+def _get_displacement_fill(
+    displacement_type: Any,
+):
+    """
+    Retorna a cor correspondente ao tipo de deslocamento.
+
+    ENTRADA    -> verde
+    FECHAMENTO -> azul
+    ESPECIAL   -> amarelo
+
+    Para None, vazio ou qualquer outro valor,
+    não altera a formatação existente.
+    """
+
+    if displacement_type is None:
+        return None
+
+    displacement_type = str(
+        displacement_type
+    ).strip().upper()
+
+    if not displacement_type:
+        return None
+
+    if displacement_type == "ENTRADA":
+        return FILL_ENTRADA
+
+    if displacement_type == "FECHAMENTO":
+        return FILL_FECHAMENTO
+
+    if displacement_type == "ESPECIAL":
+        return FILL_ESPECIAL
+
+    return None
+
+
+def _apply_displacement_color(
+    ws,
+    row_num: int,
+    start_col: int,
+    end_col: int,
+    displacement_type: Any,
+):
+    """
+    Aplica a cor do tipo de deslocamento somente
+    nas células preenchidas do quadrante.
+
+    As células vazias mantêm o estilo original
+    copiado do template.
+    """
+
+    fill = _get_displacement_fill(
+        displacement_type
+    )
+
+    if fill is None:
+        return
+
+    for col_num in range(
+        start_col,
+        end_col + 1,
+    ):
+
+        cell = ws.cell(
+            row=row_num,
+            column=col_num,
+        )
+
+        if isinstance(
+            cell,
+            MergedCell,
+        ):
+            continue
+
+        if (
+            cell.value is None
+            or cell.value == ""
+        ):
+            continue
+
+        cell.fill = copy(fill)
 
 
 # ============================================================
@@ -922,6 +1039,66 @@ def generate(
                 target_cell.value = (
                     record.get(field)
                 )
+
+            # ====================================================
+            # CORES DOS TIPOS DE DESLOCAMENTO
+            #
+            # Os campos abaixo são utilizados apenas como
+            # metadados de formatação:
+            #
+            # 1_TIPO_DESLOCAMENTO
+            # 2_TIPO_DESLOCAMENTO
+            # 3_TIPO_DESLOCAMENTO
+            # 4_TIPO_DESLOCAMENTO
+            #
+            # Eles NÃO precisam existir no config.yaml.
+            # Eles NÃO são escritos em nenhuma célula.
+            #
+            # Quadrante 1 = A:G
+            # Quadrante 2 = H:N
+            # Quadrante 3 = O:Q
+            # Quadrante 4 = R:U
+            # ====================================================
+
+            _apply_displacement_color(
+                ws,
+                row_num,
+                1,
+                7,
+                record.get(
+                    "1_TIPO_DESLOCAMENTO"
+                ),
+            )
+
+            _apply_displacement_color(
+                ws,
+                row_num,
+                8,
+                14,
+                record.get(
+                    "2_TIPO_DESLOCAMENTO"
+                ),
+            )
+
+            _apply_displacement_color(
+                ws,
+                row_num,
+                15,
+                17,
+                record.get(
+                    "3_TIPO_DESLOCAMENTO"
+                ),
+            )
+
+            _apply_displacement_color(
+                ws,
+                row_num,
+                18,
+                21,
+                record.get(
+                    "4_TIPO_DESLOCAMENTO"
+                ),
+            )
 
     # ========================================================
     # SUBSTITUI TOKENS
