@@ -87,17 +87,22 @@ def _copy_row_style(
 
 FILL_ENTRADA = PatternFill(
     fill_type="solid",
-    fgColor="92D050",
+    fgColor="C4D79B",
 )
 
 FILL_FECHAMENTO = PatternFill(
     fill_type="solid",
-    fgColor="5B9BD5",
+    fgColor="9FC5E8",
 )
 
 FILL_ESPECIAL = PatternFill(
     fill_type="solid",
-    fgColor="FFD966",
+    fgColor="FFFF66",
+)
+
+FILL_RECARGA = PatternFill(
+    fill_type="solid",
+    fgColor="FABF8F",
 )
 
 
