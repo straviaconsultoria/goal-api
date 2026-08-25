@@ -81,6 +81,12 @@ def _copy_row_style(
 # ESPECIAL
 # -> AMARELO
 #
+# DESLOCAMENTO_RECARGA
+# -> LARANJA
+#
+# Para deslocamento de recarga, toda a faixa H:U
+# da linha deve ficar laranja.
+#
 # Se o tipo for null/vazio, nenhuma alteração de cor é feita.
 # O estilo original do template é preservado.
 # ============================================================
@@ -112,9 +118,10 @@ def _get_displacement_fill(
     """
     Retorna a cor correspondente ao tipo de deslocamento.
 
-    ENTRADA    -> verde
-    FECHAMENTO -> azul
-    ESPECIAL   -> amarelo
+    ENTRADA                -> verde
+    FECHAMENTO             -> azul
+    ESPECIAL               -> amarelo
+    DESLOCAMENTO_RECARGA   -> laranja
 
     Para None, vazio ou qualquer outro valor,
     não altera a formatação existente.
@@ -138,6 +145,9 @@ def _get_displacement_fill(
 
     if displacement_type == "ESPECIAL":
         return FILL_ESPECIAL
+
+    if displacement_type == "DESLOCAMENTO_RECARGA":
+        return FILL_RECARGA
 
     return None
 
@@ -187,6 +197,58 @@ def _apply_displacement_color(
             continue
 
         cell.fill = copy(fill)
+
+
+def _apply_recharge_color(
+    ws,
+    row_num: int,
+    displacement_type: Any,
+):
+    """
+    Quando o Quadrante 3 representa um
+    DESLOCAMENTO_RECARGA, aplica a cor laranja
+    em toda a faixa H:U da mesma linha.
+
+    A regra é aplicada por último para que tenha
+    prioridade sobre ENTRADA, FECHAMENTO e ESPECIAL.
+
+    Diferentemente da regra padrão de deslocamento,
+    aqui TODAS as células entre H e U são coloridas,
+    inclusive células vazias.
+    """
+
+    if displacement_type is None:
+        return
+
+    displacement_type = str(
+        displacement_type
+    ).strip().upper()
+
+    if (
+        displacement_type
+        != "DESLOCAMENTO_RECARGA"
+    ):
+        return
+
+    for col_num in range(
+        8,
+        22,
+    ):
+
+        cell = ws.cell(
+            row=row_num,
+            column=col_num,
+        )
+
+        if isinstance(
+            cell,
+            MergedCell,
+        ):
+            continue
+
+        cell.fill = copy(
+            FILL_RECARGA
+        )
 
 
 # ============================================================
@@ -1102,6 +1164,30 @@ def generate(
                 21,
                 record.get(
                     "4_TIPO_DESLOCAMENTO"
+                ),
+            )
+
+            # ====================================================
+            # COR DO DESLOCAMENTO DE RECARGA
+            #
+            # Quando o Q3 estiver identificado como
+            # DESLOCAMENTO_RECARGA, toda a faixa H:U
+            # deve ficar LARANJA.
+            #
+            # Esta regra é aplicada POR ÚLTIMO para ter
+            # prioridade sobre:
+            #
+            # ENTRADA
+            # FECHAMENTO
+            # ESPECIAL
+            #
+            # ====================================================
+
+            _apply_recharge_color(
+                ws,
+                row_num,
+                record.get(
+                    "3_TIPO_DESLOCAMENTO"
                 ),
             )
 
