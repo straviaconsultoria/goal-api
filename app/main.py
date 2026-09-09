@@ -73,11 +73,33 @@ def generate_report(tenant: str, report: str, payload: dict):
 def generate_pdf_report(
     tenant: str,
     report: str,
-    payload: dict,
+    payload: dict | list,
 ):
 
-    # Valida que tenant/relatório existem na configuração atual.
+    # Valida que tenant/relatório existem.
     load_report_config(tenant, report)
+
+    # Aceita tanto:
+    #
+    # { "variables": ..., "sections": ... }
+    #
+    # quanto:
+    #
+    # [{ "variables": ..., "sections": ... }]
+    #
+    if isinstance(payload, list):
+
+        if not payload:
+            raise ValueError(
+                "Payload recebido como lista vazia."
+            )
+
+        payload = payload[0]
+
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "Payload inválido. Esperado objeto JSON."
+        )
 
     output = generate_pdf(
         tenant,
