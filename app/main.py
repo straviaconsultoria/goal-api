@@ -9,6 +9,7 @@ from reportlab.pdfgen import canvas
 from app.core.security import verify_api_key
 from app.core.registry import load_report_config, list_catalog
 from app.core.generator import generate
+from app.core.pdf_generator import generate_pdf
 
 
 app = FastAPI(title="Excel Report API", version="2.0.0")
@@ -62,4 +63,34 @@ def generate_report(tenant: str, report: str, payload: dict):
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post(
+    "/reports/{tenant}/{report}/pdf",
+    dependencies=[Depends(verify_api_key)],
+)
+def generate_pdf_report(
+    tenant: str,
+    report: str,
+    payload: dict,
+):
+
+    # Valida que tenant/relatório existem na configuração atual.
+    load_report_config(tenant, report)
+
+    output = generate_pdf(
+        tenant,
+        report,
+        payload,
+    )
+
+    filename = f"{report}.pdf"
+
+    return StreamingResponse(
+        output,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
     )
