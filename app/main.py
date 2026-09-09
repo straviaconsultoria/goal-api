@@ -84,12 +84,12 @@ def generate_pdf_report(
         payload,
     )
 
-    filename = f"{report}.pdf"
+    filename = "Ordem de Serviço.pdf"
 
     return StreamingResponse(
         output,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": "attachment; filename*=UTF-8''Ordem%20de%20Servi%C3%A7o.pdf"
         },
     )
